@@ -338,3 +338,17 @@ class SqliteDocumentRepository(IDocumentRepository):
             note=row['note'],
             created_at=row['created_at']
         )
+    
+    def delete_document(self, doc_id: int) -> None:
+        query = "DELETE FROM documents WHERE id = ?"
+        conn = self.db_manager.get_connection()
+        try:
+            with conn:
+                cursor = conn.execute(query, (doc_id,))
+                if cursor.rowcount == 0:
+                    logger.warning(f"嘗試刪除不存在的單據 ID: {doc_id}")
+                else:
+                    logger.info(f"已刪除單據 ID: {doc_id}")
+        except sqlite3.Error as e:
+            logger.error(f"刪除單據失敗: {e}")
+            raise RepositoryError(f"資料庫刪除錯誤: {e}")

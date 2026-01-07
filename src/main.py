@@ -4,7 +4,6 @@ import os
 import tkinter as tk
 from tkinter import messagebox
 
-# --- [修正路徑問題] 開始 ---
 # 取得 main.py 所在的目錄 (即 src/)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 # 取得 src 的上一層目錄 (即專案根目錄 WMS-Python/)
@@ -13,7 +12,6 @@ project_root = os.path.dirname(current_dir)
 # 將專案根目錄加入 Python 搜尋路徑
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
-# --- [修正路徑問題] 結束 ---
 
 from src.config import DB_PATH, SCHEMA_PATH
 from src.infrastructure.database.db_manager import DatabaseManager

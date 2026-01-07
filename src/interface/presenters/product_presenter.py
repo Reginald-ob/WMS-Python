@@ -1,4 +1,6 @@
 import logging
+import csv
+import os
 from typing import Optional
 
 from src.interface.views.product_view import ProductView
@@ -27,7 +29,8 @@ class ProductPresenter:
             on_save=self.handle_save,
             on_delete=self.handle_delete,
             on_select=self.handle_select,
-            on_manage_variants=self.open_variant_manager
+            on_manage_variants=self.open_variant_manager,
+            on_import=self.handle_import_csv  # 匯入csv事件
         )
 
         # 暫存子視窗的引用，避免被 GC
@@ -147,3 +150,113 @@ class ProductPresenter:
         except Exception as e:
             logger.error(f"刪除商品失敗: {e}")
             self.view.show_message("系統錯誤", "刪除失敗", is_error=True)
+
+    def handle_import_csv(self):
+            """處理 CSV 批量匯入"""
+            file_path = self.view.ask_open_csv_file()
+            if not file_path:
+                return
+
+            # 暫存解析後的物件列表
+            parsed_products = []
+            
+            # Phase 1: 讀取與驗證 (All-or-Nothing)
+            try:
+                # 使用 utf-8-sig 以支援 Excel 存出的 CSV (去除 BOM)
+                # 若使用者是 Excel 繁體中文環境存的 CSV 可能是 big5，這裡預設用 utf-8
+                with open(file_path, mode='r', encoding='utf-8-sig', newline='') as f:
+                    reader = csv.reader(f)
+                    
+                    # 略過表頭 (Header)
+                    try:
+                        next(reader) 
+                    except StopIteration:
+                        self.view.show_message("錯誤", "檔案內容為空", is_error=True)
+                        return
+
+                    # 開始逐行讀取
+                    for line_num, row in enumerate(reader, start=2):
+                        # 檢查欄位數量 (至少 5 欄: Brand, Name, Category, Price, Desc)
+                        if len(row) < 5:
+                            raise ValueError(f"第 {line_num} 行格式錯誤：欄位數量不足 (需至少5欄)")
+                        
+                        brand = row[0].strip()
+                        name = row[1].strip()
+                        category = row[2].strip()
+                        price_str = row[3].strip()
+                        desc = row[4].strip()
+
+                        # 必填驗證
+                        if not brand or not name or not price_str:
+                            raise ValueError(f"第 {line_num} 行資料錯誤：品牌、名稱與售價為必填")
+
+                        # 數值驗證
+                        try:
+                            base_price = float(price_str)
+                        except ValueError:
+                            raise ValueError(f"第 {line_num} 行資料錯誤：售價「{price_str}」不是有效的數字")
+
+                        # 建立物件 (暫不設定 ID)
+                        product = Product(
+                            id=None,
+                            brand=brand,
+                            name=name,
+                            category=category,
+                            base_price=base_price,
+                            description=desc
+                        )
+                        parsed_products.append(product)
+
+            except UnicodeDecodeError:
+                self.view.show_message("編碼錯誤", "無法讀取檔案，請確保 CSV 為 UTF-8 編碼。", is_error=True)
+                return
+            except ValueError as e:
+                # 捕捉驗證錯誤，中斷並通知
+                self.view.show_message("匯入失敗", str(e), is_error=True)
+                return
+            except Exception as e:
+                logger.error(f"CSV 讀取未預期錯誤: {e}")
+                self.view.show_message("系統錯誤", f"讀取檔案時發生錯誤: {e}", is_error=True)
+                return
+
+            # Phase 2: 檢查重複並寫入 (Skip Duplicates)
+            try:
+                # 為了效率，先取得所有現有商品，建立 (Brand, Name) 的集合
+                existing_products = self.service.get_all_products()
+                existing_keys = {(p.brand, p.name) for p in existing_products}
+                
+                added_count = 0
+                skipped_list = []
+
+                for new_prod in parsed_products:
+                    # 檢查重複
+                    if (new_prod.brand, new_prod.name) in existing_keys:
+                        skipped_list.append(f"{new_prod.brand} - {new_prod.name}")
+                        continue
+                    
+                    # 寫入資料庫
+                    self.service.product_repo.add_product(new_prod)
+                    added_count += 1
+                
+                # Phase 3: 結果報告
+                msg = f"匯入作業完成！\n\n✅ 成功新增: {added_count} 筆"
+                
+                if skipped_list:
+                    # 若重複項目太多，只顯示前 10 筆
+                    display_skipped = skipped_list[:10]
+                    more_count = len(skipped_list) - 10
+                    
+                    skip_msg = "\n".join(display_skipped)
+                    if more_count > 0:
+                        skip_msg += f"\n...及其他 {more_count} 筆"
+                        
+                    msg += f"\n⚠️ 跳過 {len(skipped_list)} 筆重複資料 (需手動修改):\n----------------\n{skip_msg}"
+                
+                self.view.show_message("匯入結果", msg)
+                
+                # 刷新列表
+                self.load_products()
+
+            except Exception as e:
+                logger.error(f"匯入儲存過程錯誤: {e}")
+                self.view.show_message("儲存失敗", f"寫入資料庫時發生錯誤: {e}", is_error=True)

@@ -155,3 +155,58 @@ class InventoryService:
     def get_document_detail(self, doc_id: int) -> Optional[Document]:
         """查詢單據完整內容 (包含 Items)"""
         return self.document_repo.get_document_by_id(doc_id)
+    
+    def delete_document(self, doc_id: int) -> None:
+        """
+        刪除單據並回滾庫存。
+        策略: 嚴格檢查 (Strict Check)。若回滾導致負庫存則禁止刪除。
+        """
+        # 1. 取得單據內容
+        doc = self.document_repo.get_document_by_id(doc_id)
+        if not doc:
+            raise EntityNotFoundError(f"單據 ID {doc_id} 不存在")
+
+        # 2. 計算回滾對庫存的影響 (Pre-calculation)
+        # 我們使用 map 來累加每個變體的變動量 (impact)，避免多次讀寫
+        impacts = {} # Dict[variant_id, change_amount]
+
+        for item in doc.items:
+            change = 0
+            if doc.doc_type == 'INBOUND':
+                # 原本是增加，回滾就是減少
+                change = -item.quantity
+            elif doc.doc_type == 'OUTBOUND':
+                # 原本是減少，回滾就是增加
+                change = item.quantity
+            elif doc.doc_type == 'ADJUST':
+                # 原本是 +qty (可能負)，回滾就是 -qty
+                change = -item.quantity
+            
+            impacts[item.variant_id] = impacts.get(item.variant_id, 0) + change
+
+        # 3. 嚴格檢查 (Strict Check)
+        # 在執行任何修改前，先確認所有變體回滾後都不會 < 0
+        for vid, change in impacts.items():
+            if change < 0: # 只有扣庫存才需要檢查
+                variant = self.product_repo.get_variant_by_id(vid)
+                if not variant: continue 
+                
+                final_qty = variant.stock_qty + change
+                if final_qty < 0:
+                    raise BusinessRuleViolation(
+                        f"庫存不足，請先補單並備註。\n"
+                        f"商品: {variant.display_name}\n"
+                        f"當前: {variant.stock_qty}, 回滾需扣: {abs(change)}"
+                    )
+
+        # 4. 執行回滾更新
+        for vid, change in impacts.items():
+            if change == 0: continue
+            variant = self.product_repo.get_variant_by_id(vid)
+            if variant:
+                variant.stock_qty += change
+                self.product_repo.update_variant(variant)
+
+        # 5. 最後刪除單據
+        self.document_repo.delete_document(doc_id)
+        logger.info(f"單據 {doc_id} 刪除成功，庫存已回滾。")

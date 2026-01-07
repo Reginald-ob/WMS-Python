@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from typing import List, Any, Callable
 
 from src.domain.models import Product
@@ -31,7 +31,17 @@ class ProductView(tk.Frame):
         list_frame = tk.Frame(self, bg="#f0f0f0", padx=10, pady=10)
         list_frame.grid(row=0, column=0, sticky="nsew")
 
+        # 原本只有 tk.Label，現在改為 Frame 容器以容納按鈕
+        title_frame = tk.Frame(list_frame, bg="#f0f0f0")
+        title_frame.pack(fill="x", pady=(0, 5))
+
         tk.Label(list_frame, text="商品列表", font=("Microsoft JhengHei", 12, "bold")).pack(anchor="w")
+
+        # 匯入csv按鈕
+        self.import_btn = tk.Button(title_frame, text="📂 匯入 CSV", bg="#FF9800", fg="white", 
+                                            font=("Microsoft JhengHei", 9),
+                                            command=self._on_import_click)
+        self.import_btn.pack(side="right")
 
         # Treeview 設定
         cols = ("ID", "Brand", "Name", "Price")
@@ -173,3 +183,28 @@ class ProductView(tk.Frame):
             
     def ask_confirmation(self, title: str, message: str) -> bool:
         return messagebox.askyesno(title, message)
+    
+
+    # 讓 Presenter 綁定事件的回呼
+    def set_callbacks(self, on_save, on_delete, on_select, on_manage_variants=None, on_import=None):
+        self._on_save_callback = on_save
+        self._on_delete_callback = on_delete
+        self._on_select_callback = on_select
+        if on_manage_variants:
+            self._on_manage_variants_callback = on_manage_variants
+        if on_import:
+            self._on_import_callback = on_import
+
+    # 按鈕點擊事件
+    def _on_import_click(self):
+        if hasattr(self, '_on_import_callback'):
+            self._on_import_callback()
+
+    # 提供選擇檔案的對話框 (由 Presenter 呼叫)
+    def ask_open_csv_file(self) -> str:
+        """打開檔案選擇器，回傳檔案路徑，若取消則回傳空字串"""
+        file_path = filedialog.askopenfilename(
+            title="選擇商品匯入檔",
+            filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")]
+        )
+        return file_path

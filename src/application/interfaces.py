@@ -90,3 +90,8 @@ class IDocumentRepository(ABC):
             doc_type: 若提供，僅篩選特定類型的單據 (如 'INBOUND')
         """
         pass
+
+    @abstractmethod
+    def delete_document(self, doc_id: int) -> None:
+        """刪除單據 (資料庫層級刪除)"""
+        pass
