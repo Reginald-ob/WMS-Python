@@ -75,4 +75,10 @@ pip install pyinstaller pytest
 * **原因**：Service 層在寫入前會預先檢查庫存 (`Pre-check`)。若 `variant.stock_qty < item.quantity`，會觸發 `OutOfStockError` 並中止交易。
 * **解法**：請先建立「進貨單 (INBOUND)」或「調整單 (ADJUST)」以補足庫存。
 
+## 📦 打包指令 (Pyinstaller)
+```bash
+pyinstaller --noconsole --onefile --name="SportWMS" --paths="." --add-data "src/infrastructure/database/schema.sql;src/infrastructure/database" --icon=NONE src/main.py
+```
+
 * 更新於2026/1/2
+
